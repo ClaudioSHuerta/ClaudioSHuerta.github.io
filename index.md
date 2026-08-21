@@ -1,3 +1,7 @@
+---
+title: "Cheat Sheet iOS"
+---
+
 # 📱 Cheat Sheet iOS Senior: Swift, UIKit, SwiftUI, Concurrency & Arquitectura
 
 ---
@@ -21,7 +25,7 @@
 
 ### Control de Acceso & Optimización
 
--   **`final class`:** Le indica al compilador que ninguna otra clase heredará de esta. Cambia el método de llamada de **Dynamic Dispatch** (búsqueda en vtable) a **Static Dispatch** (llamada directa en memoria), acelerando la ejecución.
+-   **`final class`:** Le indica al compilador que ninguna otra clase heredará de esta. Cambia el método de llamada de **Dynamic Dispatch** (búsqueda en vtable) a **Static Dispatch** (llamada d[...]
 -   **Niveles de Acceso:**
     -   `private`: Accesible solo dentro del ámbito local de la declaración/extensión en el mismo archivo.
     -   `fileprivate`: Accesible desde cualquier lugar dentro del mismo archivo fuente.
@@ -57,19 +61,19 @@
 ### Transición de Estado: Combine vs. Observation
 
 -   **Enfoque Tradicional (`ObservableObject` / `@Published`):**
--   _Analogía del Periódico:_ La clase notifica cualquier cambio global. Si cambia un solo campo `@Published`, el objeto completo notifica y la vista se vuelve a renderizar aunque no consuma esa propiedad específica.
+-   _Analogía del Periódico:_ La clase notifica cualquier cambio global. Si cambia un solo campo `@Published`, el objeto completo notifica y la vista se vuelve a renderizar aunque no consuma esa[...]
 
 -   **Enfoque Moderno (macro `@Observable`):**
--   _Analogía de Suscripción Específica:_ La vista rastrea únicamente las propiedades individuales que lee explícitamente dentro de su bloque `body`. Si cambian otras propiedades que la vista no utiliza, no habrá re-renderizados innecesarios.
+-   _Analogía de Suscripción Específica:_ La vista rastrea únicamente las propiedades individuales que lee explícitamente dentro de su bloque `body`. Si cambian otras propiedades que la vista[...]
 
 ### Reglas de Oro para Property Wrappers Modernos
 
-| Property Wrapper / Palabra Clave | Rol en la Vista                  | Uso con Macro `@Observable`                                                                                                                                    |
-| -------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@State`                         | Dueño del estado local.          | Se utiliza cuando la vista **crea e inicializa** directamente el objeto `@Observable`.                                                                         |
-| Variable simple (`var` / `let`)  | Lector de datos externos.        | Se utiliza cuando la vista **recibe** el objeto `@Observable` desde fuera y solo lee sus valores.                                                              |
-| `@Bindable`                      | Generador de enlaces (Bindings). | Se utiliza cuando la vista **recibe** un objeto `@Observable` y requiere mutar sus propiedades a través de controles (`TextField`, `Toggle`, etc.) usando `$`. |
-| `@Binding`                       | Conexión bidireccional simple.   | Se usa para enlazar tipos de valor primitivos (`Bool`, `String`) pasados desde una vista padre.                                                                |
+| Property Wrapper / Palabra Clave | Rol en la Vista                  | Uso con Macro `@Observable`                                                                                                 [...]
+| -------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------[...]
+| `@State`                         | Dueño del estado local.          | Se utiliza cuando la vista **crea e inicializa** directamente el objeto `@Observable`.                                     [...]
+| Variable simple (`var` / `let`)  | Lector de datos externos.        | Se utiliza cuando la vista **recibe** el objeto `@Observable` desde fuera y solo lee sus valores.                           [...]
+| `@Bindable`                      | Generador de enlaces (Bindings). | Se utiliza cuando la vista **recibe** un objeto `@Observable` y requiere mutar sus propiedades a través de controles (`Text[...]
+| `@Binding`                       | Conexión bidireccional simple.   | Se usa para enlazar tipos de valor primitivos (`Bool`, `String`) pasados desde una vista padre.                            [...]
 
 ```swift
 @Observable
@@ -102,9 +106,9 @@ TextField("Nombre Cliente", text: $viewModel.clienteNombre)
 
 ### Conceptos Clave
 
--   **`async / await`:** Permite definir funciones que pueden suspender su ejecución y reanudarse cooperativamente sin bloquear hilos. La palabra `await` indica un **punto de suspensión** liberando el hilo actual para otras tareas del sistema.
+-   **`async / await`:** Permite definir funciones que pueden suspender su ejecución y reanudarse cooperativamente sin bloquear hilos. La palabra `await` indica un **punto de suspensión** liber[...]
 -   **`Task`:** Estructura que actúa como contenedor para crear un contexto asíncrono desde entornos síncronos (como el evento de un `Button`).
--   **`actor`:** Tipo de referencia que garantiza la seguridad en concurrencia (thread safety) aislando su estado y asegurando que **solo un hilo a la vez** pueda acceder a sus miembros, evitando _Data Races_.
+-   **`actor`:** Tipo de referencia que garantiza la seguridad en concurrencia (thread safety) aislando su estado y asegurando que **solo un hilo a la vez** pueda acceder a sus miembros, evitando[...]
 -   **`@MainActor`:** Actor global que representa el **Main Thread** de la aplicación, garantizando que la lógica de interfaz se ejecute en el hilo principal.
 
 ### Concurrencia Estructurada
@@ -217,9 +221,9 @@ return resultToReturn as! T
 ## 🗄️ 1. SwiftData & Modelos de Persistencia
 
 -   **`@Model`:** Macro que convierte una clase en una entidad persistida automáticamente por SwiftData (equivalente moderno a `NSManagedObject` de Core Data, sin el boilerplate).
--   **`@Attribute(.externalStorage)`:** Le indica a SwiftData que guarde ese campo (típicamente `Data` de imágenes) **fuera** del archivo principal de la base de datos, en lugar de inline. Reduce el tamaño del store y mejora el rendimiento de queries que no necesitan ese blob.
--   **Restricción de CloudKit:** cada propiedad almacenada debe ser **opcional o tener un valor por defecto**, incluso si el `init` siempre la asigna explícitamente. CloudKit no puede forzar constraints "not null" a nivel de esquema, así que SwiftData exige el default como salvaguarda.
--   **Structs `Codable` embebidos:** para relaciones simples 1-a-1 que no necesitan ser consultadas por sí mismas (ej. la canción adjunta a una entrada), conviene un `struct: Codable` embebido en el modelo en vez de crear otro `@Model` separado.
+-   **`@Attribute(.externalStorage)`:** Le indica a SwiftData que guarde ese campo (típicamente `Data` de imágenes) **fuera** del archivo principal de la base de datos, en lugar de inline. Redu[...]
+-   **Restricción de CloudKit:** cada propiedad almacenada debe ser **opcional o tener un valor por defecto**, incluso si el `init` siempre la asigna explícitamente. CloudKit no puede forzar co[...]
+-   **Structs `Codable` embebidos:** para relaciones simples 1-a-1 que no necesitan ser consultadas por sí mismas (ej. la canción adjunta a una entrada), conviene un `struct: Codable` embebido [...]
 
 ```swift
 @Model
@@ -238,7 +242,7 @@ final class MoodEntry {
 ## ☁️ 2. CloudKit & Sincronización
 
 -   **`ModelConfiguration`:** define dónde y cómo vive el store de SwiftData. El parámetro `cloudKitDatabase:` acepta `.automatic` (sincroniza) o `.none` (solo local).
--   **Patrón de fallback:** si la capability de iCloud/CloudKit no está habilitada aún en el target (requiere cuenta de Apple Developer paga), `try? ModelContainer(...)` con configuración CloudKit falla silenciosamente devolviendo `nil` — hay que intentar una segunda configuración local como respaldo para que la app no crashee y siga funcionando offline.
+-   **Patrón de fallback:** si la capability de iCloud/CloudKit no está habilitada aún en el target (requiere cuenta de Apple Developer paga), `try? ModelContainer(...)` con configuración Clo[...]
 -   **`groupContainer:`:** apunta el store a un **App Group** compartido en lugar del contenedor privado del app, para que una extensión (widget) pueda leer los mismos datos.
 
 ```swift
@@ -262,9 +266,9 @@ if let container = try? ModelContainer(for: schema, configurations: [cloudConfig
 
 ## 🧩 3. App Groups & Extensiones (Widgets)
 
--   **App Group (`group.<bundle-id>`):** contenedor compartido en disco entre el app principal y sus extensiones (widgets, hoy, share, etc.). Se declara en el `.entitlements` de **cada** target que necesita acceder a él.
--   **`UserDefaults(suiteName:)`:** variante de `UserDefaults` que lee/escribe en el espacio del App Group en lugar del `.standard` privado de cada proceso — así el widget puede leer preferencias (skin activo, tema) que el usuario cambió en la app.
--   **Entitlements necesarios en paralelo:** `com.apple.security.application-groups` debe estar en el `.entitlements` del app **y** del widget extension con el mismo identificador, o la lectura compartida falla en silencio.
+-   **App Group (`group.<bundle-id>`):** contenedor compartido en disco entre el app principal y sus extensiones (widgets, hoy, share, etc.). Se declara en el `.entitlements` de **cada** target q[...]
+-   **`UserDefaults(suiteName:)`:** variante de `UserDefaults` que lee/escribe en el espacio del App Group en lugar del `.standard` privado de cada proceso — así el widget puede leer preferenc[...]
+-   **Entitlements necesarios en paralelo:** `com.apple.security.application-groups` debe estar en el `.entitlements` del app **y** del widget extension con el mismo identificador, o la lectura c[...]
 
 ```swift
 enum AppGroup {
@@ -279,17 +283,17 @@ enum AppGroup {
 
 ## 🏛️ 4. Arquitectura MVVM aplicada
 
--   **Separación por carpetas:** `Models/`, `ViewModels/`, `Views/`, `Managers/`, `Persistence/`, `Utilities/` — cada capa con una responsabilidad única, sin lógica de negocio dentro de las `View`.
--   **`Managers/`:** clases de servicio transversal (ej. `ThemeManager`) que no pertenecen a un flujo específico de pantalla, pero sí necesitan ser `@Observable` para notificar cambios de UI global.
--   **Validaciones de negocio en el ViewModel, no en la View:** por ejemplo, impedir crear entradas de mood en fechas futuras se resuelve como un guard en el `ViewModel`, y la `View` solo refleja ese estado (deshabilitar botón, mostrar aviso).
+-   **Separación por carpetas:** `Models/`, `ViewModels/`, `Views/`, `Managers/`, `Persistence/`, `Utilities/` — cada capa con una responsabilidad única, sin lógica de negocio dentro de las [...]
+-   **`Managers/`:** clases de servicio transversal (ej. `ThemeManager`) que no pertenecen a un flujo específico de pantalla, pero sí necesitan ser `@Observable` para notificar cambios de UI gl[...]
+-   **Validaciones de negocio en el ViewModel, no en la View:** por ejemplo, impedir crear entradas de mood en fechas futuras se resuelve como un guard en el `ViewModel`, y la `View` solo refleja[...]
 
 ---
 
 ## 🎨 5. Observation Framework & Theming
 
--   **`@Observable` + `@AppStorage` + `@ObservationIgnored`:** cuando una propiedad respaldada por `@AppStorage` vive dentro de una clase `@Observable`, hay que marcarla `@ObservationIgnored` (el macro de Observation no sabe cómo instrumentar un property wrapper externo) y espejarla en una propiedad plana que sí dispara la observación.
--   **Trampa del `didSet` de `@AppStorage`:** no se ejecuta en la carga inicial, solo en cambios posteriores explícitos — por lo tanto el valor "espejo" debe sembrarse manualmente en el `init`.
--   **Distinción explícito vs. resuelto por sistema:** un `AppearanceMode` con casos `light/dark/system` permite diferenciar cuando el usuario **elige** modo oscuro explícitamente (aplicar tinte custom) de cuando el sistema simplemente resuelve a oscuro (mantener el tinte default).
+-   **`@Observable` + `@AppStorage` + `@ObservationIgnored`:** cuando una propiedad respaldada por `@AppStorage` vive dentro de una clase `@Observable`, hay que marcarla `@ObservationIgnored` (el[...]
+-   **Trampa del `didSet` de `@AppStorage`:** no se ejecuta en la carga inicial, solo en cambios posteriores explícitos — por lo tanto el valor "espejo" debe sembrarse manualmente en el `init`[...]
+-   **Distinción explícito vs. resuelto por sistema:** un `AppearanceMode` con casos `light/dark/system` permite diferenciar cuando el usuario **elige** modo oscuro explícitamente (aplicar tin[...]
 
 ```swift
 @Observable
@@ -311,16 +315,16 @@ class ThemeManager {
 ## 🖼️ 6. WidgetKit
 
 -   **`WidgetBundle`:** punto de entrada de una extensión con múltiples widgets (`@main struct MoodWidgetsBundle: WidgetBundle`), agrupa varios `Widget` en un solo target.
--   **Lectura de datos compartidos:** el widget no tiene acceso directo al `ModelContainer` de la app; necesita su propio `PersistenceController`/`WidgetPersistence` apuntando al mismo App Group para leer los mismos registros.
--   **Constraints de layout más estrictos:** el canvas de un widget es mucho menos permisivo que una vista completa de la app — texto o calendarios que se ven bien en pantalla completa pueden recortarse (_clipping_) en el tamaño reducido del widget. Requiere iterar el layout específicamente para cada `WidgetFamily`.
+-   **Lectura de datos compartidos:** el widget no tiene acceso directo al `ModelContainer` de la app; necesita su propio `PersistenceController`/`WidgetPersistence` apuntando al mismo App Group [...]
+-   **Constraints de layout más estrictos:** el canvas de un widget es mucho menos permisivo que una vista completa de la app —texto o calendarios que se ven bien en pantalla completa pueden[...] 
 
 ---
 
 ## 🎵 7. MusicKit — Búsqueda de Apple Music
 
 -   **`MusicAuthorization.request()`:** solicita permiso al usuario para acceder al catálogo de Apple Music; debe esperarse (`await`) y verificar `status == .authorized` antes de buscar.
--   **`MusicCatalogSearchRequest`:** query tipada contra el catálogo (no la librería del usuario), con `types:` para filtrar el modelo de resultado (`MusicKit.Song.self`) y `limit` para paginar.
--   **Requiere capability + cuenta de developer:** igual que CloudKit, sin la capability "MusicKit" habilitada en el target y una cuenta de Apple Developer inscrita, `MusicAuthorization.request()` falla — hay que manejar ese estado (`isAuthorizationDenied`) en la UI en lugar de asumir éxito.
+-   **`MusicCatalogSearchRequest`:** query tipada contra el catálogo (no la librería del usuario), con `types:` para filtrar el modelo de resultado (`MusicKit.Song.self`) y `limit` para paginar[...]
+-   **Requiere capability + cuenta de developer:** igual que CloudKit, sin la capability "MusicKit" habilitada en el target y una cuenta de Apple Developer inscrita, `MusicAuthorization.request()[...]
 
 ```swift
 let status = await MusicAuthorization.request()
@@ -338,5 +342,5 @@ searchResults = Array(response.songs)
 
 ## 📌 8. Pendientes / TODOs técnicos
 
--   **CloudKit y MusicKit** requieren inscribirse en el Apple Developer Program (pago) y habilitar sus capabilities en Xcode — por ahora ambos tienen fallback gracioso (local-only / `isAuthorizationDenied`).
+-   **CloudKit y MusicKit** requieren inscribirse en el Apple Developer Program (pago) y habilitar sus capabilities en Xcode — por ahora ambos tienen fallback gracioso (local-only / `isAuthoriz[...]
 -   **Face ID / Touch ID** (bloqueo biométrico del spec original) — todavía no implementado.
