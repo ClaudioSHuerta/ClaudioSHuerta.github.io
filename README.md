@@ -1,7 +1,3 @@
----
-title: "Claudio Sepúlveda Huerta"
----
-
 # 👋 Claudio Sepúlveda Huerta
 
 ### Swift Development for Apple Platforms
@@ -13,7 +9,7 @@ Tech lover 💜🤓💜
 
 ## About this project
 
-This is my personal GitHub Pages site, where I keep notes, cheat sheets, and things I learn while building apps for the Apple ecosystem — Swift, SwiftUI, SwiftData, WidgetKit, and more.
+This is the source for my personal GitHub Pages site ([claudioshuerta.github.io](https://claudioshuerta.github.io)), where I keep notes, cheat sheets, and things I learn while building apps for the Apple ecosystem — Swift, SwiftUI, SwiftData, WidgetKit, and more.
 
 ## 📓 Notes
 
