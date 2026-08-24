@@ -60,10 +60,35 @@ A drop-in SwiftUI "What's New" release notes sheet. Define a `[NoteletVersionNot
 
 Nice fit for **One Record Journal** or any app that ships frequent small updates and wants a lightweight in-app changelog instead of relying on App Store release notes alone.
 
+### [SlideMenu](https://github.com/matteozappia/SlideMenu)
+by [Matteo Zappia](https://github.com/matteozappia) · ⭐ 10 · iOS 15+, Swift 6.0+
+
+A lightweight, dependency-free SwiftUI side menu with gesture-driven navigation. The menu slides in from either edge via a horizontal drag gesture with axis locking, so it plays nicely alongside `ScrollView`/`List` instead of fighting them. Includes a tap-to-dismiss overlay, a `SlideMenuButton` component wired up through the environment, and full customization of width, colors, animations, and borders — with automatic corner radius matching for a native look.
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/matteozappia/SlideMenu.git", branch: "main")
+]
+```
+
+Simple alternative to rolling a custom `DragGesture` + offset side menu by hand.
+
+### [FabBar](https://github.com/ryanashcraft/FabBar)
+by [Ryan Ashcraft](https://github.com/ryanashcraft) · ⭐ 340 · iOS 26+
+
+A faithful recreation of iOS 26's Liquid Glass tab bar with a tinted floating action button baked in — the layout native `TabView` can't produce (centering with few tabs, adding a primary action without an awkward extra button). Exposes a SwiftUI API but is built on top of `UISegmentedControl` internally to get the real bubbly glass touch effect. ⚠️ Relies on internal UIKit view-hierarchy manipulation that may break in future iOS updates — treat as a calculated risk, not a safe long-term dependency.
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/ryanashcraft/FabBar.git", from: "1.0.0")
+]
+```
+
 ---
 
 ## 📝 Notes to self
 
 - `Portal`'s `_PortalPrivate` module is the kind of thing to keep *out* of App Store–bound targets — fine for internal tools or experimentation, risky for production.
+- Same caution applies to `FabBar`: it manipulates UIKit's private view hierarchy to fake Liquid Glass, so pin the version and be ready for it to break on iOS updates.
 - `Notelet` pairs well with the `ThemeManager` / `@Observable` pattern already in the main cheat sheet — could drive `accentColor` from the same `AccentColorOption` enum.
 - `open-swiftui-animations` and `DotsMatrixLoading` are both "steal the technique, not the dependency" resources — no SPM install, just read the source.
