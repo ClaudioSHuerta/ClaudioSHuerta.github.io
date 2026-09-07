@@ -211,5 +211,3 @@ return resultToReturn as! T
 ```
 
 ---
-
-> 📓 Las notas específicas de **SwiftData, CloudKit, WidgetKit y MVVM** de la app _One Record Journal_ se movieron a su propia página: [One Record Journal — Cheat Sheet](one-record-journal.md).
