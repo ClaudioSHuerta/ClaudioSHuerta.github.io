@@ -60,6 +60,20 @@ A drop-in SwiftUI "What's New" release notes sheet. Define a `[NoteletVersionNot
 
 Nice fit for **One Record Journal** or any app that ships frequent small updates and wants a lightweight in-app changelog instead of relying on App Store release notes alone.
 
+### [SwiftNEWKit](https://github.com/1998code/SwiftNEWKit)
+by [1998code](https://github.com/1998code) · ⭐ 284 · iOS 15+, macOS 14+, watchOS 8+, tvOS 17+, visionOS 1+
+
+The heavier alternative to Notelet, above — same idea (an in-app "What's New" release-notes screen) but as an all-platforms framework instead of a lean sheet. Auto-triggers itself on app version/build change (no manual "mark as seen" bookkeeping), and can load notes from a local bundled JSON or a remote URL. Ships with animated mesh-gradient/glass-morphism styling, sheet/full-screen-cover/embedded presentation modes, a searchable version history browser, 9+ built-in localizations, and even a CarPlay template.
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/1998code/SwiftNEWKit.git", from: "1.0.0")
+]
+// SwiftNEW(show: $showNew)
+```
+
+Reach for this over Notelet when the app targets more than iOS/iPadOS, wants remote-hosted release notes, or the fancier presentation is worth the extra weight; stick with Notelet for a minimal iOS-only footprint.
+
 ### [SlideMenu](https://github.com/matteozappia/SlideMenu)
 by [Matteo Zappia](https://github.com/matteozappia) · ⭐ 10 · iOS 15+, Swift 6.0+
 
