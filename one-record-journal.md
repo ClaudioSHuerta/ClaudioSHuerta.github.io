@@ -8,12 +8,12 @@ Notas de implementación de **One Record Journal**, un diario de estados de áni
 registro por día) construido con SwiftUI + SwiftData. Cubre SwiftData/CloudKit (ya en
 producción), HealthKit, App Groups, WidgetKit, el pipeline de renderizado app → widget,
 fondos procedurales, Liquid Glass, WeatherKit, MusicKit, deep linking, rendimiento,
-accesibilidad, TipKit y testing.
+accesibilidad, TipKit, bloqueo con Face ID, compartir entradas y testing.
 
 - **Plataforma:** iOS 18.0+ (algunos detalles visuales sólo en iOS 26 con fallback)
 - **Lenguaje:** Swift 6.2, concurrencia estricta, `async`/`await` siempre que exista
 - **Arquitectura:** MVVM con `@Observable` (`@State` para propiedad, `@Bindable` / `@Environment` para paso)
-- **Última actualización:** 30-09-26
+- **Última actualización:** 09-10-26
 
 ---
 
@@ -498,7 +498,7 @@ do {
 
 ## 💡 16. TipKit — primers antes de pedir permiso
 
-`Tips.configure()` en el `init` del `App` (`import TipKit`). Dos tips, cada uno atado a
+`Tips.configure()` en el `init` del `App` (`import TipKit`). Dos tips de permisos, cada uno atado a
 un `@Parameter(.transient)` estático que el ViewModel/View activa cuando corresponde
 mostrarlo — la regla del tip (`#Rule`) es simplemente "¿este flag está en `true`?":
 
@@ -513,6 +513,8 @@ struct HealthStickersTip: Tip {
     var message: Text? { Text("Turn these on to show your sleep, steps and activity as stickers on this entry.") }
 }
 ```
+
+-   **`EntryActionsTip`** — un tercer tip, de descubrimiento: avisa que mantener presionada una tarjeta del timeline abre el menú Editar / Compartir / Eliminar. Su regla es numérica (`entryCount >= 2`, alimentado desde `DayTimelineView` con `.task(id: entries.count)`) para no aparecerle a alguien que todavía está aprendiendo a crear su primera entrada. Se ancla con `.popoverTip` sólo en la tarjeta más reciente, usa `MaxDisplayCount(1)` y se invalida (`.actionPerformed`) en cuanto se usa cualquier acción del menú.
 
 ---
 
@@ -537,6 +539,7 @@ struct HealthStickersTip: Tip {
 -   **Esquema custom:** `onerecordjournal://mood-entry?date=<timeIntervalSince1970>`.
 -   **`DeepLinkRouter`** (`@Observable`, en el environment) parsea la URL y expone `pendingDate: Date?`; `MoodCalendarView` lo observa vía `.task(id: deepLinkRouter.pendingDate)` y abre el editor.
 -   **`.onOpenURL`** en el `WindowGroup`; **`widgetURL(entry.deepLinkURL)`** en `MoodStickerWidget` — tocar el widget abre el editor de la entrada de hoy.
+-   **Quick Action "New Entry"** (mantener presionado el ícono en la Home Screen): declarada estáticamente en `Info.plist` (`UIApplicationShortcutItems`, título localizado en `InfoPlist.xcstrings`). SwiftUI no tiene un hook nativo para quick actions, así que `@UIApplicationDelegateAdaptor` registra un `QuickActionAppDelegate` que devuelve una `UISceneConfiguration` con `QuickActionSceneDelegate`: el lanzamiento en frío llega en `connectionOptions.shortcutItem` y el lanzamiento en caliente en `windowScene(_:performActionFor:)`. Ambos escriben `DeepLinkRouter.shared.pendingDate = .now`, reutilizando el mismo camino que el widget. Por eso `DeepLinkRouter` ahora expone un `static let shared` (el scene delegate vive fuera del árbol de SwiftUI).
 
 ---
 
@@ -549,11 +552,31 @@ struct HealthStickersTip: Tip {
 
 ---
 
-## 📌 21. Pendientes / TODOs técnicos
+## 🔒 21. Bloqueo de la app — Face ID / Touch ID / código
+
+-   **`LocalAuthentication`** con la política `.deviceOwnerAuthentication` (biometría con caída al código del dispositivo). Un `LAContext` nuevo por intento: uno que ya tuvo éxito no vuelve a pedir. `NSFaceIDUsageDescription` en `Info.plist`.
+-   **`DeviceAuthenticating`** (protocolo) separa `LocalAuthentication` de **`AppLockManager`** (`@Observable`), así la lógica se testea con un autenticador falso (`AppLockManagerTests`). Los errores son tipados: `throws(AppLockError)` con `.cancelled`, `.unavailable` y `.failed`.
+-   **Cuándo bloquea:** al pasar la escena a `.background` (síncrono, para que la cubierta esté puesta antes de la captura del app switcher). Al volver a `.active` pide desbloqueo una sola vez: la propia hoja de Face ID vuelve la escena inactiva y activa, y sin el flag `promptsOnNextActivation` un "Cancelar" volvería a pedir en loop.
+-   **La cubierta es una `UIWindow` propia** (`AppLockWindowController`) con `windowLevel` sobre `.alert`, así tapa también sheets, alerts y el teclado (que se baja con `endEditing`).
+-   **Cambiar el ajuste exige autenticarse**, tanto para activarlo como para desactivarlo: nadie con el teléfono desbloqueado lo apaga, y no se activa sin un método que funcione.
+-   **Sin código en el dispositivo** (`.passcodeNotSet` → `.unavailable`), la app se desbloquea y apaga el ajuste en vez de dejar a la persona fuera de su diario para siempre.
+
+---
+
+## 📤 22. Compartir una entrada como imagen
+
+-   **Menú contextual** en `DayCollageCard`: Editar / Compartir / Eliminar (con `confirmationDialog`; al eliminar también borra la muestra de State of Mind de Salud).
+-   **`ShareableEntryCard`** es una versión estática de la tarjeta (fecha, stickers, pie con ícono y nombre de la app) pensada sólo para rasterizar. Reutiliza `CollageLayout.stickerKinds(for:)`, `CollageLayout.height(forStickerCount:)` y la función `entrySticker(for:entry:skin:)`, compartidas con la tarjeta en vivo.
+-   **`ImageRenderer` renderiza en una sola pasada** y no espera `.task`s: la foto se decodifica antes (`preparingThumbnail(of:)`) y se pasa como `decodedPhoto`, y el fondo mosaico se dibuja directo con `MosaicCanvas` en `ShareCardBackground` en vez de `MosaicBackground` (que carga su textura en un `.task`).
+-   **Se comparte un archivo, no un `Transferable`:** `EntryImageRenderer.pngFile` escribe `One Record AAAA-MM-DD.png` en `URL.temporaryDirectory` y `ShareLink` comparte esa URL; es lo que las extensiones de terceros (Telegram, Discord) aceptan de forma confiable.
+-   **Se rasteriza sólo al abrir `ShareEntrySheet`**, nunca al hacer scroll del timeline.
+
+---
+
+## 📌 23. Pendientes / TODOs técnicos
 
 -   **HealthKit** sigue pendiente de habilitar la capability en Signing & Capabilities (CloudKit y WeatherKit ya se activaron — ver §2, §14). Hasta entonces, lectura y escritura de Salud fallan silenciosamente y la entrada se guarda igual sin stickers de salud.
 -   **Re-testear el refresh de skin en el widget** ahora que CloudKit corre `.automatic` de verdad — ver §7.
 -   **Skin `weather`** está deshabilitada (comentada) hasta decidir su rumbo visual.
 -   **`ConcentricRectangle` en el placeholder del widget** tiene una rama de fallback iOS 18 marcada `ponytail:` — se puede borrar cuando el deployment target mínimo suba a iOS 26.
 -   **Cuenta de Apple Developer paga** (team `528ZHVQF62`) ya está activa y provisionando CloudKit + WeatherKit; falta sumar HealthKit al mismo App ID.
--   **Face ID / Touch ID** (bloqueo biométrico del spec original) — todavía no implementado.
