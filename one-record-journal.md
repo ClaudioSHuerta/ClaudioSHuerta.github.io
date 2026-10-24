@@ -13,7 +13,7 @@ accesibilidad, TipKit, bloqueo con Face ID, compartir entradas y testing.
 - **Plataforma:** iOS 18.0+ (algunos detalles visuales sólo en iOS 26 con fallback)
 - **Lenguaje:** Swift 6.2, concurrencia estricta, `async`/`await` siempre que exista
 - **Arquitectura:** MVVM con `@Observable` (`@State` para propiedad, `@Bindable` / `@Environment` para paso)
-- **Última actualización:** 09-10-26
+- **Última actualización:** 24-10-26
 
 ---
 
@@ -60,6 +60,9 @@ final class MoodEntry {
 -   **Ya no es fallback-only:** la capability "iCloud" (servicio CloudKit, contenedor `iCloud.com.csh.One-Record-Journal`) está habilitada y confirmada aprovisionada en el Developer Portal (cuenta paga, team `528ZHVQF62`). El container corre con `cloudKitDatabase: .automatic` de forma real, no como aspiración.
 -   **El fallback local sigue ahí** por si CloudKit falla en un dispositivo puntual (sin cuenta de iCloud, cuenta restringida, etc.) — `try` en vez de `try?`, con un `catch` que loggea antes de caer a `cloudKitDatabase: .none`.
 -   **Logging detallado de fallos de sync:** el logging por defecto de `NSPersistentCloudKitContainer` redacta las razones por-registro como `<private>`. Suscribirse a `eventChangedNotification` y volcar `CKError.partialErrorsByItemID` a `Logger` (categoría `PersistenceController`, visible incluso en builds de TestFlight vía Console.app) recupera el detalle real.
+-   **El store se abre en `application(_:didFinishLaunchingWithOptions:)`, no en `App.init()`:** iOS corre `App.init()` durante el *prewarming* y puede suspender el proceso en cualquier momento; suspendido a mitad de la apertura, SQLite queda con un lock en el App Group y iOS mata la app (`0xdead10cc`). Abrirlo en `didFinishLaunching` también cubre el lanzamiento en segundo plano por un push silencioso de CloudKit.
+-   **Background task mientras CloudKit escribe:** `PersistenceController` lleva un `Set` de eventos de `NSPersistentCloudKitContainer` empezados y sin terminar (`endDate == nil`) y mantiene un `beginBackgroundTask` abierto mientras no esté vacío. Sin eso, un export que seguía haciendo commit al salir del foreground terminaba en el mismo `0xdead10cc`.
+-   **`CloudSyncStatus`** muestra en Settings si la sincronización está activa (`On` / `Off` sin cuenta / `Unavailable`), combinando `isCloudSyncActive` con `CKContainer.accountStatus()`.
 -   **`groupContainer:`** sigue apuntando el store al App Group compartido, para que la extensión de widgets lea los mismos datos (siempre con `cloudKitDatabase: .none` ahí — el app es dueño de la sincronización).
 
 ```swift
@@ -206,7 +209,11 @@ mostrados en la nueva pantalla de **Acknowledgments** (§11).
 | --- | --- | --- |
 | `TodayMoodWidget` | small | PNG del mood pre-renderizado por el app |
 | `MoodStickerWidget` | medium | El mismo snapshot; dibuja **un solo** sticker — el de mayor prioridad que la entrada de hoy tenga |
-| `MoodCalendarWidget` | small/medium/large | Lee SwiftData directo (`ModelContext(WidgetPersistence.shared)`) + un "nudge" al guardar |
+| `MoodCalendarWidget` | small/medium/large/extraLarge | Lee SwiftData directo (`ModelContext(WidgetPersistence.shared)`) + un "nudge" al guardar; el arte de los moods sale de `WidgetMoodArtCache` |
+| `StreakWidget` | accessoryCircular (Lock Screen) | Días seguidos con registro; la llama es sólida cuando hoy ya tiene entrada |
+
+-   **`WidgetMoodArtCache`:** el calendario dibuja el mood de cada día, así que el app pre-renderiza los diez moods de la skin activa a PNGs chicos (`widget-mood-art.json` en el App Group). Se vuelve a renderizar sólo si cambia la skin, la revisión del arte (`currentArtRevision`), las pistas de mood o el filtro de color.
+-   **Prompt "How's your day?"** en los widgets cuando hoy no tiene entrada: cada mood es un link `onerecordjournal://mood-entry?date=…&mood=<raw>` y `DeepLinkRouter.pendingMood` abre el editor con ese mood ya elegido.
 
 > **El TODO de "unificar los tres widgets de sticker" ya se resolvió:** `MoodNoteWidget` /
 > `MoodPhotoWidget` / `MoodSongWidget` se colapsaron en un único `MoodStickerWidget`. En vez
@@ -295,6 +302,14 @@ private func sleepMinutes(for day: Date) async -> Int? {
     return Int((seconds / 60).rounded())
 }
 ```
+
+### Valores de Salud sólo en el dispositivo — `HealthReadingCache`
+
+-   **App Review Guideline 5.1.3(ii):** los datos de Salud no pueden guardarse en iCloud. Por eso, desde 1.0 la entrada sincroniza sólo **qué** stickers muestra (`HealthStickerSelection`: métricas + `capturedAt`), nunca los valores. `MoodEntry.health` queda sólo para entradas de builds anteriores.
+-   **Cada dispositivo lee sus propios valores** de Apple Health y los guarda en `HealthReadings.json` en el App Group (`completeFileProtectionUntilFirstUserAuthentication`, `isExcludedFromBackup`). La clave es `capturedAt` en milisegundos, estable en todos los dispositivos.
+-   **Misma ventana en todos lados:** pasos y actividad se suman desde el inicio del día hasta `capturedAt` (`HealthProvider.snapshot(for:metrics:upTo:)`), así un iPad que lee después llega al mismo total.
+-   **Relectura durante 3 días** (`rereadPeriod`): Salud en iCloud trae las muestras de otro dispositivo por tandas, y una lectura temprana puede quedar corta (623 pasos en vez de 9.716) sin forma de saberlo.
+-   **Nunca pide permiso en segundo plano:** `snapshot(for:using:)` es seguro desde el refresh del widget tras un import de CloudKit; sólo `loadMissing(..., requestingAccess: true)` desde el foreground pide acceso.
 
 ### Escritura — `StateOfMindWriter`
 
@@ -498,6 +513,8 @@ do {
 
 ## 💡 16. TipKit — primers antes de pedir permiso
 
+> **Desde el rediseño (oct-26) la app ya no muestra tips:** se eliminaron `WeatherLocationTip`, `HealthStickersTip` y `EntryActionsTip`. `Tips.configure()` sigue en el `init` del `App`. Lo de abajo queda como referencia del patrón.
+
 `Tips.configure()` en el `init` del `App` (`import TipKit`). Dos tips de permisos, cada uno atado a
 un `@Parameter(.transient)` estático que el ViewModel/View activa cuando corresponde
 mostrarlo — la regla del tip (`#Rule`) es simplemente "¿este flag está en `true`?":
@@ -549,6 +566,8 @@ struct HealthStickersTip: Tip {
 -   **Dynamic Type real, no sólo "no forzar tamaños":** la grilla del calendario (7 columnas) tiene un techo explícito de tamaño de texto — `.dynamicTypeSize(...DynamicTypeSize.accessibility1)` — porque una grilla de 7 columnas físicamente no puede crecer más sin romperse, igual que hace la app Calendario de Apple. El collage de stickers y sus textos sí escalan libremente con Dynamic Type.
 -   **Haptics en la selección de mood** — feedback táctil al elegir un mood en el editor, además del visual.
 -   **`accessibilityLabel`** en controles no obvios (el handle de resize del calendario).
+-   **Distinguir moods sin depender del color:** con *Differentiate Without Color* del sistema, o con el switch propio "Mood cues" en Settings, Doodle y Cats usan arte con pistas dibujadas y la franja semanal nombra cada mood. El switch vive en el App Group (`AppGroup.showsMoodCues`) para que los widgets lo sigan.
+-   **Filtros de color por skin** (Settings › Accessibility › Skin Colors): `SkinColorFilter` con `protanopia`, `deuteranopia` y `tritanopia` recolorea sólo el arte de Doodle y Cats (y los colores de los gráficos) para que cada mood caiga en un color distinto para ese tipo de daltonismo. Los colores salen de `Tools/SkinColorFilters/optimize.py`.
 
 ---
 
@@ -573,7 +592,24 @@ struct HealthStickersTip: Tip {
 
 ---
 
-## 📌 23. Pendientes / TODOs técnicos
+## 🔔 23. Recordatorio diario
+
+-   **`DailyReminder`** programa notificaciones locales (`UNCalendarNotificationTrigger`, sin repetir) para los próximos 7 días a la hora elegida, saltándose hoy si ya tiene entrada o si la hora ya pasó. Abrir la app una vez por semana basta para mantenerlas.
+-   **Se reprograma en los mismos momentos que el widget** (`TodayMoodWidgetRefresher`): guardar o borrar la entrada de hoy, cambiar de skin, volver al foreground o un import de CloudKit.
+-   **El switch pide permiso al activarse** y sólo queda encendido si las notificaciones están permitidas.
+-   **Tocar la notificación** abre una entrada nueva para hoy vía `DeepLinkRouter`. El delegado usa la variante con *completion handler* a propósito: con la variante `async`, UIKit actualiza su snapshot de restauración fuera del main thread y crashea.
+
+---
+
+## 📄 24. Exportar el diario a CSV
+
+-   **`JournalExport`** arma un CSV RFC 4180 (campos con coma, comillas o saltos de línea entre comillas, comillas duplicadas). Fechas en ISO 8601 en la zona horaria del diario y temperatura con `en_US_POSIX`, para que la planilla no dependa del idioma.
+-   **`JournalExportFile`** es `Transferable` con `FileRepresentation`: el archivo se genera recién cuando el usuario elige un destino en el share sheet, así abrir Settings no paga el costo.
+-   **Los valores de Salud** salen de `HealthReadingCache` de *este* dispositivo.
+
+---
+
+## 📌 25. Pendientes / TODOs técnicos
 
 -   **HealthKit** sigue pendiente de habilitar la capability en Signing & Capabilities (CloudKit y WeatherKit ya se activaron — ver §2, §14). Hasta entonces, lectura y escritura de Salud fallan silenciosamente y la entrada se guarda igual sin stickers de salud.
 -   **Re-testear el refresh de skin en el widget** ahora que CloudKit corre `.automatic` de verdad — ver §7.
