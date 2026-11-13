@@ -8,12 +8,12 @@ Notas de implementación de **One Record Journal**, un diario de estados de áni
 registro por día) construido con SwiftUI + SwiftData. Cubre SwiftData/CloudKit (ya en
 producción), HealthKit, App Groups, WidgetKit, el pipeline de renderizado app → widget,
 fondos procedurales, Liquid Glass, WeatherKit, MusicKit, deep linking, rendimiento,
-accesibilidad, TipKit, bloqueo con Face ID, compartir entradas y testing.
+accesibilidad, iPhone Duo, bloqueo con Face ID, compartir entradas y testing.
 
 - **Plataforma:** iOS 18.0+ (algunos detalles visuales sólo en iOS 26 con fallback)
 - **Lenguaje:** Swift 6.2, concurrencia estricta, `async`/`await` siempre que exista
 - **Arquitectura:** MVVM con `@Observable` (`@State` para propiedad, `@Bindable` / `@Environment` para paso)
-- **Última actualización:** 24-10-26
+- **Última actualización:** 13-11-26
 
 ---
 
@@ -213,6 +213,9 @@ mostrados en la nueva pantalla de **Acknowledgments** (§11).
 | `StreakWidget` | accessoryCircular (Lock Screen) | Días seguidos con registro; la llama es sólida cuando hoy ya tiene entrada |
 
 -   **`WidgetMoodArtCache`:** el calendario dibuja el mood de cada día, así que el app pre-renderiza los diez moods de la skin activa a PNGs chicos (`widget-mood-art.json` en el App Group). Se vuelve a renderizar sólo si cambia la skin, la revisión del arte (`currentArtRevision`), las pistas de mood o el filtro de color.
+-   **Hoy desde CloudKit (`CloudTodayMood`):** iOS a veces tarda en despertar al app para un import de CloudKit, así que una entrada hecha en otro dispositivo no llegaba al widget. Antes de armar el timeline, cada widget consulta la base privada (`CD_MoodEntry`, zona `com.apple.coredata.cloudkit.zone`, sólo el campo `CD_mood`) si el snapshot de hoy no tiene mood o vino de CloudKit. Si falla, se queda con el snapshot. Requiere `CD_date` marcado *Queryable* en el esquema (también en Production) y la capability iCloud en el target de widgets. Mientras hoy no tenga entrada recarga cada 30 min; después, cada hora.
+-   **Tope de píxeles de WidgetKit (`WidgetImage`):** WidgetKit descarta en silencio las imágenes de un widget si su área total pasa el límite para su tamaño y escala. El app renderiza a 3x, así que en un widget a 1x (iPad Pro) el arte y el sticker desaparecían. `WidgetImage.make(_:maxPoints:scale:)` decodifica con ImageIO a puntos × escala.
+-   **`extraLarge`:** el sticker de hoy va debajo del mood, no al lado, para que una nota tenga ancho para leerse.
 -   **Prompt "How's your day?"** en los widgets cuando hoy no tiene entrada: cada mood es un link `onerecordjournal://mood-entry?date=…&mood=<raw>` y `DeepLinkRouter.pendingMood` abre el editor con ese mood ya elegido.
 
 > **El TODO de "unificar los tres widgets de sticker" ya se resolvió:** `MoodNoteWidget` /
@@ -303,13 +306,11 @@ private func sleepMinutes(for day: Date) async -> Int? {
 }
 ```
 
-### Valores de Salud sólo en el dispositivo — `HealthReadingCache`
+### Valores de Salud guardados en la entrada (sincronizan por iCloud)
 
--   **App Review Guideline 5.1.3(ii):** los datos de Salud no pueden guardarse en iCloud. Por eso, desde 1.0 la entrada sincroniza sólo **qué** stickers muestra (`HealthStickerSelection`: métricas + `capturedAt`), nunca los valores. `MoodEntry.health` queda sólo para entradas de builds anteriores.
--   **Cada dispositivo lee sus propios valores** de Apple Health y los guarda en `HealthReadings.json` en el App Group (`completeFileProtectionUntilFirstUserAuthentication`, `isExcludedFromBackup`). La clave es `capturedAt` en milisegundos, estable en todos los dispositivos.
--   **Misma ventana en todos lados:** pasos y actividad se suman desde el inicio del día hasta `capturedAt` (`HealthProvider.snapshot(for:metrics:upTo:)`), así un iPad que lee después llega al mismo total.
--   **Relectura durante 3 días** (`rereadPeriod`): Salud en iCloud trae las muestras de otro dispositivo por tandas, y una lectura temprana puede quedar corta (623 pasos en vez de 9.716) sin forma de saberlo.
--   **Nunca pide permiso en segundo plano:** `snapshot(for:using:)` es seguro desde el refresh del widget tras un import de CloudKit; sólo `loadMissing(..., requestingAccess: true)` desde el foreground pide acceso.
+-   **`MoodEntry.health: HealthSnapshot?`** guarda sueño, pasos y actividad del día junto con la entrada, y viaja por CloudKit como el resto. En nov-26 se quitó la capa `HealthReadingCache` / `HealthStickerSelection` (valores sólo en el dispositivo) para simplificar el modelo; es una decisión consciente frente a la App Review Guideline 5.1.3(ii), que no permite guardar datos de Salud en iCloud.
+-   **Pasos y actividad** se suman desde el inicio del día hasta ahora (o hasta el fin del día si la fecha ya pasó): `HealthProvider.snapshot(for:metrics:)`.
+-   **Las entradas guardadas con la versión anterior** (sólo `healthStickers`, sin valores) ya no muestran sus stickers de salud: el campo salió del modelo y nada lee `HealthReadings.json`.
 
 ### Escritura — `StateOfMindWriter`
 
@@ -467,7 +468,7 @@ del calendario y el scroll del timeline:
 -   **`ThumbnailImageCache`:** cache de proceso (`NSCache`, se autopurga bajo presión de memoria) para que el timeline y el editor no re-decodifiquen la misma foto cada vez que una fila vuelve a aparecer en pantalla. El decode corre en un `Task.detached` — sólo el acceso al `NSCache` es `@MainActor`.
 -   **Fotos guardadas se downsamplean al importarlas**, no sólo al mostrarlas: el editor limita el lado mayor a 2048px antes de guardar (`updatePhoto(with:)`), así el store de SwiftData y cada decode posterior no cargan con los tens-of-MB que entrega la cámara.
 -   **`ThemeManager` simplificado** (§5) también fue un cambio de rendimiento además de legibilidad: menos propiedades observables por preferencia.
--   **Optimización de SVGs** (moods Doodle y Cats) para bajar aún más el costo de decodificación que ya mencionaba el TODO de la versión anterior de este documento.
+-   **Arte de moods en PNG:** Doodle, Cats y Sharks eran SVGs que envolvían un bitmap, y CoreUI lo volvía a descomprimir en cada redibujo (hangs de 266–524 ms al cambiar de skin, medidos con `xctrace`). Ahora cada imageset es un solo PNG @3x de 480 px, y `MoodArtImage` usa `.id(skin).transition(.opacity)` para que el cambio sea un fundido entre dos imágenes y no un morph cuadro a cuadro.
 
 ---
 
@@ -513,7 +514,7 @@ do {
 
 ## 💡 16. TipKit — primers antes de pedir permiso
 
-> **Desde el rediseño (oct-26) la app ya no muestra tips:** se eliminaron `WeatherLocationTip`, `HealthStickersTip` y `EntryActionsTip`. `Tips.configure()` sigue en el `init` del `App`. Lo de abajo queda como referencia del patrón.
+> **TipKit ya no está en la app:** el rediseño (oct-26) eliminó `WeatherLocationTip`, `HealthStickersTip` y `EntryActionsTip`, y en nov-26 se quitó también `Tips.configure()`. Lo de abajo queda como referencia del patrón.
 
 `Tips.configure()` en el `init` del `App` (`import TipKit`). Dos tips de permisos, cada uno atado a
 un `@Parameter(.transient)` estático que el ViewModel/View activa cuando corresponde
@@ -565,9 +566,22 @@ struct HealthStickersTip: Tip {
 -   **`@Environment(\.accessibilityReduceTransparency)`** — con Reduce Transparency activo, `AppBackgroundView` cae a un color sólido en vez del mosaico.
 -   **Dynamic Type real, no sólo "no forzar tamaños":** la grilla del calendario (7 columnas) tiene un techo explícito de tamaño de texto — `.dynamicTypeSize(...DynamicTypeSize.accessibility1)` — porque una grilla de 7 columnas físicamente no puede crecer más sin romperse, igual que hace la app Calendario de Apple. El collage de stickers y sus textos sí escalan libremente con Dynamic Type.
 -   **Haptics en la selección de mood** — feedback táctil al elegir un mood en el editor, además del visual.
+-   **Tamaños de texto de accesibilidad:** con `dynamicTypeSize.isAccessibilitySize`, el encabezado grande, la fecha del timeline, las estadísticas del mes y la mezcla de moods pasan de fila a columna o permiten más líneas en vez de truncar.
+-   **Nombre del mood en cada sticker:** una etiqueta bajo el disco, porque parte del arte es ambiguo solo (el "Disappointed" de Classic usa lentes de sol). Va como `overlay`, así el collage y la tarjeta para compartir siguen midiendo el sticker sólo por el disco, y es `accessibilityHidden` porque VoiceOver ya nombra el mood.
 -   **`accessibilityLabel`** en controles no obvios (el handle de resize del calendario).
 -   **Distinguir moods sin depender del color:** con *Differentiate Without Color* del sistema, o con el switch propio "Mood cues" en Settings, Doodle y Cats usan arte con pistas dibujadas y la franja semanal nombra cada mood. El switch vive en el App Group (`AppGroup.showsMoodCues`) para que los widgets lo sigan.
 -   **Filtros de color por skin** (Settings › Accessibility › Skin Colors): `SkinColorFilter` con `protanopia`, `deuteranopia` y `tritanopia` recolorea sólo el arte de Doodle y Cats (y los colores de los gráficos) para que cada mood caiga en un color distinto para ese tipo de daltonismo. Los colores salen de `Tools/SkinColorFilters/optimize.py`.
+
+---
+
+## 📱 20b. iPhone Duo
+
+Sigue la HIG *Designing for iPhone Duo* (skill `iphone-duo-adaptation` en el repo).
+
+-   **Journal:** calendario y timeline van en un `ArrangementView` dividido en lienzos anchos y de altura regular, así cada uno ocupa una mitad con el iPhone Duo abierto como libro. iPad en horizontal se ve igual.
+-   **Abierto y vertical:** `CalendarTimelineTallLayout` pone el mes completo (compacto) arriba del timeline; doblado como laptop, el timeline va a la mitad vertical y el calendario a la plana.
+-   **Month:** grilla y números lado a lado desde 760 pt de ancho, divididos en el pliegue; el título baja 12 pt para no chocar con la esquina redondeada.
+-   **Pantalla exterior** de lado o en carpa: columna de calendario de 290 pt para que timeline y números tengan espacio.
 
 ---
 
@@ -605,11 +619,30 @@ struct HealthStickersTip: Tip {
 
 -   **`JournalExport`** arma un CSV RFC 4180 (campos con coma, comillas o saltos de línea entre comillas, comillas duplicadas). Fechas en ISO 8601 en la zona horaria del diario y temperatura con `en_US_POSIX`, para que la planilla no dependa del idioma.
 -   **`JournalExportFile`** es `Transferable` con `FileRepresentation`: el archivo se genera recién cuando el usuario elige un destino en el share sheet, así abrir Settings no paga el costo.
--   **Los valores de Salud** salen de `HealthReadingCache` de *este* dispositivo.
+-   **Los valores de Salud** salen de `MoodEntry.health`, los mismos en todos los dispositivos.
 
 ---
 
-## 📌 25. Pendientes / TODOs técnicos
+## ⚡ 25. Registrar el mood sin abrir la app — App Intents
+
+-   **`LogMoodIntent`** (parámetro `MoodsEnum`, que es `AppEnum`) guarda el mood de hoy desde los botones del widget, Siri ("Log my mood in One Record"), Shortcuts y el botón de Acción. `JournalShortcuts` lo expone como App Shortcut.
+-   **Compilado en los dos targets**, cada uno con su propio `QuickLogStore`: en el app escribe en `PersistenceController.shared` (con CloudKit) y además escribe State of Mind en Salud si está activo; en la extensión escribe en `WidgetPersistence.shared` (sin CloudKit) y el app sube la entrada a iCloud la próxima vez que corre.
+-   **`QuickMoodLog`** mantiene una entrada por día: si hoy ya tiene entrada, sólo cambia el mood. Guarda el último registro en el App Group para que el widget muestre "Logged at 9:41" y Undo durante 30 min. Undo borra la entrada que creó o devuelve el mood anterior, y nunca borra una entrada que ya tiene nota, foto o canción. Editar en el app limpia la confirmación (`QuickMoodLog.clear()`).
+-   **`QuickLogWidgets.showLogged`** actualiza el snapshot de hoy al instante con el arte que el app ya renderizó, así el widget muestra el mood antes de que el app vuelva a correr.
+-   **Control Center (`LogMoodControl`):** un control no puede mostrar un selector de mood, así que usa `OpenTodayEntryIntent` (`openAppWhenRun`), que abre el editor de hoy vía `DeepLinkRouter`. `OpenURLIntent` no abre el esquema propio del app.
+-   **Render en segundo plano (`ImageRenderer.pngData(scale:)`):** `uiImage` rasteriza en la GPU, que iOS no permite en background, y la imagen sale en blanco. Cuando un push de CloudKit despierta el app, el PNG se dibuja con Core Graphics en la CPU vía `render(rasterizationScale:)`. Las sombras quedan levemente corridas hasta el próximo refresh en foreground.
+
+---
+
+## 📊 26. Insights (reemplaza a Month)
+
+-   **`MonthInsights`** calcula las estadísticas del mes en un modelo testeable (`MonthInsightsTests`); las vistas sólo las dibujan: `YearMoodGridCard` (el año completo), `WeekdayInsightCard` (mood por día de la semana), `MonthComparisonCard` (contra el mes anterior) e `InsightCard`.
+-   **Timeline:** las rachas de días vacíos se pliegan en una sola fila (`TimelineItem`, `EmptyDaysRunRow`, con `TimelineItemTests`).
+-   **Calendario:** cada celda es tocable completa. Con tamaños de texto de accesibilidad, mantener presionado un día muestra `DayPreviewOverlay` (arte en color, nombre del mood y fecha), una versión propia del *Large Content Viewer* del sistema que sigue el dedo.
+
+---
+
+## 📌 27. Pendientes / TODOs técnicos
 
 -   **HealthKit** sigue pendiente de habilitar la capability en Signing & Capabilities (CloudKit y WeatherKit ya se activaron — ver §2, §14). Hasta entonces, lectura y escritura de Salud fallan silenciosamente y la entrada se guarda igual sin stickers de salud.
 -   **Re-testear el refresh de skin en el widget** ahora que CloudKit corre `.automatic` de verdad — ver §7.
