@@ -7,13 +7,13 @@ title: "One Record Journal — Cheat Sheet"
 Notas de implementación de **One Record Journal**, un diario de estados de ánimo (un
 registro por día) construido con SwiftUI + SwiftData. Cubre SwiftData/CloudKit (ya en
 producción), HealthKit, App Groups, WidgetKit, el pipeline de renderizado app → widget,
-fondos procedurales, Liquid Glass, WeatherKit, MusicKit, deep linking, rendimiento,
+fondos procedurales, Liquid Glass, WeatherKit, iTunes Search, deep linking, rendimiento,
 accesibilidad, iPhone Duo, bloqueo con Face ID, compartir entradas y testing.
 
 - **Plataforma:** iOS 18.0+ (algunos detalles visuales sólo en iOS 26 con fallback)
 - **Lenguaje:** Swift 6.2, concurrencia estricta, `async`/`await` siempre que exista
 - **Arquitectura:** MVVM con `@Observable` (`@State` para propiedad, `@Bindable` / `@Environment` para paso)
-- **Última actualización:** 13-11-26
+- **Última actualización:** 16-11-26
 
 ---
 
@@ -127,7 +127,7 @@ enum AppGroup {
 
 -   **Separación por carpetas:** `App/`, `Models/`, `ViewModels/`, `Views/`, `Managers/`, `Persistence/`, `Utilities/`, `Widgets/` — cada capa con una responsabilidad única, sin lógica de negocio en las vistas.
 -   **`Managers/`:** servicios transversales (`ThemeManager`, `AppSettings`, `WeatherProvider`, `HealthProvider`, `StateOfMindWriter`, `DeepLinkRouter`) que no pertenecen a un flujo de pantalla, pero necesitan ser `@Observable` o encapsular integración con frameworks del sistema. Dos managers de preferencias separados — `ThemeManager` (apariencia) y `AppSettings` (comportamiento: sync a Salud, prioridad del widget) — en vez de uno solo, para que cada uno tenga un propósito legible por su nombre.
--   **Validaciones de negocio en el ViewModel, no en la View:** p. ej. sólo permitir guardar si hay mood seleccionado (`canSave`), sólo ofrecer clima/salud para una entrada de **hoy** (`canOfferWeather`, `canOfferHealth`), o impedir seleccionar un día futuro en el calendario (`select(_:)` clampa a `min(day, today)`) — todo resuelto con `guard`/clamping en el ViewModel; la View sólo refleja el estado.
+-   **Validaciones de negocio en el ViewModel, no en la View:** p. ej. sólo permitir guardar si hay mood seleccionado (`canSave`), sólo ofrecer clima para una entrada de **hoy** (`canOfferWeather`), o impedir seleccionar un día futuro en el calendario (`select(_:)` clampa a `min(day, today)`) — todo resuelto con `guard`/clamping en el ViewModel; la View sólo refleja el estado.
 -   **`@Observable` + `@MainActor`:** las clases `@Observable` van marcadas `@MainActor` salvo que el proyecto tenga aislamiento por defecto en Main Actor. Los providers de frameworks del sistema (`HealthProvider`, `StateOfMindWriter`) son `nonisolated` a propósito — sus callbacks llegan en colas propias y no tocan estado del app, así que forzarlos a Main Actor sólo agregaría saltos de cola innecesarios.
 -   **Un tipo por archivo:** structs/clases/enums en archivos separados.
 
@@ -287,9 +287,13 @@ propia cola y no tocan estado del app):
 
 ### Lectura — `HealthProvider`
 
-Trae sueño, pasos y minutos de actividad **del día de la entrada**, sólo para *hoy*
-(`canOfferHealth` exige `isDateInToday`), nunca lanza — valores `nil`/vacíos si el
+Trae sueño, pasos y minutos de actividad **del día de la entrada**, para cualquier día
+(`canOfferHealth` sólo exige `HealthProvider.isAvailable`), nunca lanza — valores `nil`/vacíos si el
 permiso se niega o falla la query.
+
+-   **Entradas nuevas** de cualquier día traen las lecturas de ese día automáticamente.
+-   **Al abrir una entrada existente** se consulta Salud para ese día; si hay lecturas que la entrada no tiene o más altas, aparece la fila "New Health data for this day" y tocarla actualiza los stickers (se guarda con Save; cerrar sin guardar pregunta antes). `HealthSnapshot.combined(with:)` une ambas.
+-   **`HealthBackfill`** al lanzar y al volver al foreground: completa las 3 entradas más recientes con las lecturas más completas. Las que no tienen Salud reciben las métricas elegidas en Settings; las que ya tienen sólo suben (`raised(to:)`), nunca bajan ni ganan métricas nuevas. Nunca muestra la hoja de permisos. Sirve para una entrada hecha en el iPad (sin Salud) que se completa al abrir el iPhone, o una de las 8 am que recibe los pasos del día completo.
 
 -   **HealthKit nunca revela si el acceso de *lectura* fue concedido** (`authorizationStatus(for:)` sólo informa permisos de *escritura*). La única pregunta que sí responde es si la hoja de permisos **todavía no se mostró** (`statusForAuthorizationRequest(toShare:read:) == .shouldRequest`) — se usa para decidir si mostrar el tip de HealthKit (§12) antes del primer toggle.
 -   **`HKStatisticsQuery` con `.cumulativeSum`** para pasos y minutos de ejercicio, envuelto en `withCheckedContinuation`.
@@ -494,21 +498,14 @@ Se mantiene: temperatura canónica en °C formateada con `Measurement.formatted(
 
 ---
 
-## 🎵 15. MusicKit — sólo Apple Music (Spotify manual retirado)
+## 🎵 15. Canciones — iTunes Search API (MusicKit retirado)
 
--   **Se quitó el formulario de entrada manual / Spotify.** `SongPickerViewModel` sólo busca contra el catálogo de Apple Music ahora; `SongSource.spotify` sigue existiendo en el modelo persistido (compatibilidad con entradas viejas guardadas con ese origen), pero ya no hay UI para crearlas.
--   **Errores de catálogo ahora se distinguen de "sin resultados":** `searchErrorMessage` se llena cuando el propio `MusicCatalogSearchRequest` falla (p. ej. la capability "MusicKit" no está habilitada para este App ID), separado de `isAuthorizationDenied` (el usuario negó el permiso) y de una búsqueda que simplemente no encontró nada.
-
-```swift
-do {
-    var request = MusicCatalogSearchRequest(term: trimmed, types: [MusicKit.Song.self])
-    request.limit = 25
-    searchResults = Array(try await request.response().songs)
-} catch {
-    searchResults = []
-    searchErrorMessage = error.localizedDescription   // distinto de "0 resultados"
-}
-```
+-   **`ITunesSongSearch`** consulta `https://itunes.apple.com/search` (`media=music`, `entity=song`, `limit=25`, `country` = región del dispositivo, porque el storefront decide qué canciones existen). No necesita suscripción a Apple Music, clave ni permiso, así que se quitó MusicKit y `NSAppleMusicUsageDescription`.
+-   **Errores tipados** `throws(SongSearchError)`: `.offline` (códigos de `URLError` sin conexión), `.rateLimited` (Apple corta en ~20 pedidos por minuto y responde 403 o 429) y `.failed`.
+-   **`SongPickerViewModel`** busca sólo al enviar (`onSubmit(of: .search)`), guarda un cache por término y descarta respuestas de búsquedas viejas (`latestTerm`). La búsqueda se inyecta como closure, así `SongSearchTests` la reemplaza.
+-   **`SongResult`** decodifica `trackId`, `trackName`, `artistName`, `collectionName`, `artworkUrl100` y `previewUrl`. La portada de 300×300 sale de cambiar `100x100` por `300x300` en el nombre del archivo, con fallback a la de 100.
+-   **Previews de 30 s (`SongPreviewPlayer`, `SongPreviewButton`):** un `AVPlayer` a la vez, con anillo de progreso. Los términos de Apple sólo permiten streaming, así que se guarda el link (`SongAttachment.previewURL`) y nunca el audio. Un preview que falla queda deshabilitado en la sesión, y el player se detiene al cerrar el editor o el buscador.
+-   **Atribución:** Acknowledgments muestra "Song info and previews provided courtesy of iTunes" y un link a iTunes Legal. `SongSource.spotify` sigue en el modelo por compatibilidad con entradas viejas.
 
 ---
 
@@ -540,7 +537,7 @@ struct HealthStickersTip: Tip {
 
 -   **Librería:** `PhotosPicker`. **Cámara:** `CameraPicker` (`UIViewControllerRepresentable` sobre `UIImagePickerController`, sin API SwiftUI nativa de captura).
 -   Downsample a JPEG antes de guardar (§13) en vez de al mostrar — ver `updatePhoto(with:)`.
--   Usage strings en `Info.plist` (ahora en `InfoPlist.xcstrings`, localizadas): `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`, `NSLocationWhenInUseUsageDescription`, `NSAppleMusicUsageDescription`, más las de HealthKit (lectura/escritura).
+-   Usage strings en `Info.plist` (ahora en `InfoPlist.xcstrings`, localizadas): `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`, `NSLocationWhenInUseUsageDescription`, más las de HealthKit (lectura/escritura).
 
 ---
 
